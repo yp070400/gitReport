@@ -35,31 +35,25 @@ class GitHubNotFoundError(Exception):
 class GitHubClient:
     """Thin wrapper around the GitHub REST API v3 for fetching commit data."""
 
-    def __init__(self, token: str, proxies: Optional[Dict[str, str]] = None) -> None:
+    def __init__(self, token: Optional[str] = None) -> None:
         """Initialize the client.
 
         Args:
-            token:   GitHub personal access token or fine-grained token.
-            proxies: Optional requests-compatible proxy dict,
-                     e.g. {"http": "http://proxy:8080", "https": "http://proxy:8080"}.
+            token: GitHub personal access token or fine-grained token.
+                   Optional for public repos; required for private repos.
+                   Providing a token also raises the rate limit from 60 to 5000 req/hr.
         """
-        if not token or not token.strip():
-            raise GitHubAuthError(
-                "A GitHub token is required. "
-                "Set the GITHUB_TOKEN environment variable."
-            )
-        self._token = token.strip()
+        self._token = token.strip() if token and token.strip() else None
         self._session = requests.Session()
-        self._session.headers.update(
-            {
-                "Authorization": f"Bearer {self._token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            }
-        )
-        if proxies:
-            self._session.proxies.update(proxies)
-            logger.info("GitHub client using proxy: %s", proxies)
+        headers: Dict[str, str] = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+            logger.info("GitHub client authenticated (rate limit: 5000 req/hr).")
+        else:
+            logger.info("GitHub client unauthenticated — public repos only (rate limit: 60 req/hr).")
 
     # ------------------------------------------------------------------
     # Public interface
@@ -102,7 +96,15 @@ class GitHubClient:
         next_url: Optional[str] = url
 
         while next_url:
-            response = self._get_with_retry(next_url, params=params if page == 1 else None)
+            try:
+                response = self._get_with_retry(next_url, params=params if page == 1 else None)
+            except requests.exceptions.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code == 409:
+                    logger.warning(
+                        "Repository '%s' is empty (no commits). Skipping.", repo
+                    )
+                    return []
+                raise
             page_data: List[Dict[str, Any]] = response.json()
             raw_commits.extend(page_data)
             logger.info("  Page %d: fetched %d commits (total so far: %d)", page, len(page_data), len(raw_commits))

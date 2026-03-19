@@ -102,10 +102,9 @@ def validate_args(args: argparse.Namespace, config) -> None:  # type: ignore[typ
         if not args.github_repo:
             _die("--github-repo is required when --source is 'github' or 'both'.")
         if not config.github_token:
-            _die(
-                "GITHUB_TOKEN environment variable is not set.\n"
-                "Create a GitHub personal access token with 'repo' scope and export it:\n"
-                "  export GITHUB_TOKEN=ghp_your_token_here"
+            logger.warning(
+                "GITHUB_TOKEN is not set. Proceeding unauthenticated (public repos only, "
+                "60 req/hr rate limit). Set GITHUB_TOKEN to access private repos."
             )
 
     if args.source in ("bitbucket", "both"):
@@ -141,11 +140,9 @@ def fetch_commits(
     """Fetch raw commits from the configured source(s)."""
     all_commits: List[Commit] = []
 
-    proxies = config.proxies()
-
     if args.source in ("github", "both"):
         logger.info("Connecting to GitHub API...")
-        gh_client = GitHubClient(token=config.github_token, proxies=proxies or None)
+        gh_client = GitHubClient(token=config.github_token)
         gh_commits = gh_client.fetch_commits(
             repo=args.github_repo,
             since=since,
@@ -156,7 +153,7 @@ def fetch_commits(
 
     if args.source in ("bitbucket", "both"):
         logger.info("Connecting to Bitbucket API...")
-        bb_client = BitbucketClient(token=config.bitbucket_token, proxies=proxies or None)
+        bb_client = BitbucketClient(token=config.bitbucket_token)
         bb_commits = bb_client.fetch_commits(
             repo=args.bitbucket_repo,
             since=since,
@@ -314,7 +311,6 @@ def main() -> None:
                 project=config.google_cloud_project,
                 location=config.google_cloud_location,
                 tunnel_url=config.gemini_tunnel_url,
-                proxies=proxies or None,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(

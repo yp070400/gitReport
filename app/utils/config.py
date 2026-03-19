@@ -15,24 +15,6 @@ class Config:
     bitbucket_token: Optional[str] = field(default=None)
     # Tunnel endpoint for Gemini — overrides the default http://localhost/generate
     gemini_tunnel_url: Optional[str] = field(default=None)
-    # Proxy URL applied to all outbound HTTP requests (GitHub API + tunnel)
-    # e.g. "http://user:pass@proxy-host:8080"
-    http_proxy: Optional[str] = field(default=None)
-    https_proxy: Optional[str] = field(default=None)
-
-    def proxies(self) -> dict:
-        """Return a requests-compatible proxies dict."""
-        result = {}
-        if self.http_proxy:
-            result["http"] = self.http_proxy
-        if self.https_proxy:
-            result["https"] = self.https_proxy
-        # If only one is set, use it for both
-        if self.http_proxy and "https" not in result:
-            result["https"] = self.http_proxy
-        if self.https_proxy and "http" not in result:
-            result["http"] = self.https_proxy
-        return result
 
 
 def load_config() -> Config:
@@ -44,8 +26,6 @@ def load_config() -> Config:
         GITHUB_TOKEN          – Personal access token or fine-grained token for GitHub.
         BITBUCKET_TOKEN       – Bitbucket App Password or access token.
         GEMINI_TUNNEL_URL     – Override the local tunnel endpoint (default: http://localhost/generate).
-        HTTP_PROXY            – Proxy URL for HTTP requests  (e.g. http://proxy:8080).
-        HTTPS_PROXY           – Proxy URL for HTTPS requests (e.g. http://proxy:8080).
 
     Returns:
         Populated :class:`Config` instance.
@@ -55,20 +35,6 @@ def load_config() -> Config:
     github_token: Optional[str] = os.environ.get("GITHUB_TOKEN") or None
     bitbucket_token: Optional[str] = os.environ.get("BITBUCKET_TOKEN") or None
     tunnel_url: Optional[str] = os.environ.get("GEMINI_TUNNEL_URL") or None
-    proxy_user: Optional[str] = os.environ.get("PROXY_USER") or None
-    proxy_pass: Optional[str] = os.environ.get("PROXY_PASS") or None
-    proxy_host: Optional[str] = os.environ.get("PROXY_HOST") or None
-
-    # Build proxy URL from parts if individual components are provided,
-    # otherwise fall back to a full URL in HTTP_PROXY / HTTPS_PROXY.
-    if proxy_host:
-        auth = f"{proxy_user}:{proxy_pass}@" if proxy_user and proxy_pass else ""
-        built = f"http://{auth}{proxy_host}"
-        http_proxy: Optional[str] = built
-        https_proxy: Optional[str] = built
-    else:
-        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy") or None
-        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or None
 
     return Config(
         google_cloud_project=project,
@@ -76,6 +42,4 @@ def load_config() -> Config:
         github_token=github_token,
         bitbucket_token=bitbucket_token,
         gemini_tunnel_url=tunnel_url,
-        http_proxy=http_proxy,
-        https_proxy=https_proxy,
     )

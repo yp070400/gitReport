@@ -73,7 +73,6 @@ class VertexAIAnalyzer:
         project: Optional[str],
         location: str,
         tunnel_url: Optional[str] = None,
-        proxies: Optional[Dict[str, str]] = None,
     ) -> None:
         """Configure the analyzer to use the local tunnel endpoint.
 
@@ -82,8 +81,6 @@ class VertexAIAnalyzer:
             location:   Vertex AI region label (informational only).
             tunnel_url: Override the tunnel endpoint URL. Falls back to the
                         ``GEMINI_TUNNEL_URL`` env var, then ``http://localhost/generate``.
-            proxies:    Optional requests-compatible proxy dict,
-                        e.g. {"http": "http://proxy:8080", "https": "http://proxy:8080"}.
         """
         self._project = project
         self._location = location
@@ -93,9 +90,6 @@ class VertexAIAnalyzer:
         )
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
-        if proxies:
-            self._session.proxies.update(proxies)
-            logger.info("Tunnel client using proxy: %s", proxies)
         logger.info(
             "VertexAIAnalyzer initialised — tunnel endpoint: %s (project=%s, location=%s)",
             self._tunnel_url,
