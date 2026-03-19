@@ -35,11 +35,13 @@ class GitHubNotFoundError(Exception):
 class GitHubClient:
     """Thin wrapper around the GitHub REST API v3 for fetching commit data."""
 
-    def __init__(self, token: str) -> None:
+    def __init__(self, token: str, proxies: Optional[Dict[str, str]] = None) -> None:
         """Initialize the client.
 
         Args:
-            token: GitHub personal access token or fine-grained token.
+            token:   GitHub personal access token or fine-grained token.
+            proxies: Optional requests-compatible proxy dict,
+                     e.g. {"http": "http://proxy:8080", "https": "http://proxy:8080"}.
         """
         if not token or not token.strip():
             raise GitHubAuthError(
@@ -55,6 +57,9 @@ class GitHubClient:
                 "X-GitHub-Api-Version": "2022-11-28",
             }
         )
+        if proxies:
+            self._session.proxies.update(proxies)
+            logger.info("GitHub client using proxy: %s", proxies)
 
     # ------------------------------------------------------------------
     # Public interface

@@ -34,11 +34,13 @@ class BitbucketRateLimitError(Exception):
 class BitbucketClient:
     """Thin wrapper around the Bitbucket Cloud REST API 2.0 for commit data."""
 
-    def __init__(self, token: str) -> None:
+    def __init__(self, token: str, proxies: Optional[Dict[str, str]] = None) -> None:
         """Initialize the client.
 
         Args:
-            token: Bitbucket App Password or OAuth access token.
+            token:   Bitbucket App Password or OAuth access token.
+            proxies: Optional requests-compatible proxy dict,
+                     e.g. {"http": "http://proxy:8080", "https": "http://proxy:8080"}.
         """
         if not token or not token.strip():
             raise BitbucketAuthError(
@@ -54,6 +56,9 @@ class BitbucketClient:
                 "Content-Type": "application/json",
             }
         )
+        if proxies:
+            self._session.proxies.update(proxies)
+            logger.info("Bitbucket client using proxy: %s", proxies)
 
     # ------------------------------------------------------------------
     # Public interface

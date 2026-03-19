@@ -141,9 +141,11 @@ def fetch_commits(
     """Fetch raw commits from the configured source(s)."""
     all_commits: List[Commit] = []
 
+    proxies = config.proxies()
+
     if args.source in ("github", "both"):
         logger.info("Connecting to GitHub API...")
-        gh_client = GitHubClient(token=config.github_token)
+        gh_client = GitHubClient(token=config.github_token, proxies=proxies or None)
         gh_commits = gh_client.fetch_commits(
             repo=args.github_repo,
             since=since,
@@ -154,7 +156,7 @@ def fetch_commits(
 
     if args.source in ("bitbucket", "both"):
         logger.info("Connecting to Bitbucket API...")
-        bb_client = BitbucketClient(token=config.bitbucket_token)
+        bb_client = BitbucketClient(token=config.bitbucket_token, proxies=proxies or None)
         bb_commits = bb_client.fetch_commits(
             repo=args.bitbucket_repo,
             since=since,
@@ -312,6 +314,7 @@ def main() -> None:
                 project=config.google_cloud_project,
                 location=config.google_cloud_location,
                 tunnel_url=config.gemini_tunnel_url,
+                proxies=proxies or None,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
