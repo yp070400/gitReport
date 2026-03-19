@@ -55,8 +55,20 @@ def load_config() -> Config:
     github_token: Optional[str] = os.environ.get("GITHUB_TOKEN") or None
     bitbucket_token: Optional[str] = os.environ.get("BITBUCKET_TOKEN") or None
     tunnel_url: Optional[str] = os.environ.get("GEMINI_TUNNEL_URL") or None
-    http_proxy: Optional[str] = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy") or None
-    https_proxy: Optional[str] = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or None
+    proxy_user: Optional[str] = os.environ.get("PROXY_USER") or None
+    proxy_pass: Optional[str] = os.environ.get("PROXY_PASS") or None
+    proxy_host: Optional[str] = os.environ.get("PROXY_HOST") or None
+
+    # Build proxy URL from parts if individual components are provided,
+    # otherwise fall back to a full URL in HTTP_PROXY / HTTPS_PROXY.
+    if proxy_host:
+        auth = f"{proxy_user}:{proxy_pass}@" if proxy_user and proxy_pass else ""
+        built = f"http://{auth}{proxy_host}"
+        http_proxy: Optional[str] = built
+        https_proxy: Optional[str] = built
+    else:
+        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy") or None
+        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or None
 
     return Config(
         google_cloud_project=project,
