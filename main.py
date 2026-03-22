@@ -4,13 +4,15 @@
 Usage examples::
 
     python main.py --source=github --github-repo=owner/repo --months=3
-    python main.py --source=bitbucket --bitbucket-repo=workspace/repo --months=3
-    python main.py --source=both --github-repo=owner/repo --bitbucket-repo=ws/repo --months=6
-    python main.py --source=github --github-repo=owner/repo --no-ai --output=report.md
+    python main.py --source=github --github-repo=owner/repo --no-ai
+    python main.py --source=github --github-repo=owner/repo --export-commits=commits.json --no-ai
+    python main.py --offline-input=commits.json
+    python main.py --offline-input=commits.json --no-ai
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from dataclasses import replace
 from datetime import datetime, timezone, timedelta
@@ -43,9 +45,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--source",
-        required=True,
+        required=False,
+        default=None,
         choices=["github", "bitbucket", "both"],
-        help="Data source(s) to analyze.",
+        help="Data source(s) to analyze. Not required when using --offline-input.",
     )
     parser.add_argument(
         "--github-repo",
@@ -78,6 +81,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Skip Vertex AI analysis and use heuristic scores only.",
     )
+    parser.add_argument(
+        "--export-commits",
+        metavar="FILE",
+        default=None,
+        help="After fetching, save commits to a JSON file for offline AI analysis later.",
+    )
+    parser.add_argument(
+        "--offline-input",
+        metavar="FILE",
+        default=None,
+        help="Skip live fetch — load commits from a previously exported JSON file and run AI analysis.",
+    )
+    parser.add_argument(
+        "--no-details",
+        action="store_true",
+        default=False,
+        help="Skip per-commit file detail fetch. Faster but classification uses message only.",
+    )
     return parser
 
 
@@ -85,9 +106,10 @@ def textwrap() -> str:
     return (
         "Examples:\n"
         "  python main.py --source=github --github-repo=octocat/Hello-World\n"
-        "  python main.py --source=bitbucket --bitbucket-repo=my-workspace/my-repo --months=6\n"
-        "  python main.py --source=both --github-repo=org/backend --bitbucket-repo=org/frontend\n"
-        "  python main.py --source=github --github-repo=org/repo --no-ai --output=results.md\n"
+        "  python main.py --source=github --github-repo=org/repo --no-ai\n"
+        "  python main.py --source=github --github-repo=org/repo --export-commits=commits.json --no-ai\n"
+        "  python main.py --offline-input=commits.json\n"
+        "  python main.py --offline-input=commits.json --no-ai\n"
     )
 
 
@@ -98,6 +120,13 @@ def textwrap() -> str:
 
 def validate_args(args: argparse.Namespace, config) -> None:  # type: ignore[type-arg]
     """Raise SystemExit with a helpful message on invalid argument combinations."""
+    # Offline mode: only need the input file, no source/token checks needed
+    if args.offline_input:
+        return
+
+    if not args.source:
+        _die("--source is required unless --offline-input is used.")
+
     if args.source in ("github", "both"):
         if not args.github_repo:
             _die("--github-repo is required when --source is 'github' or 'both'.")
@@ -147,6 +176,7 @@ def fetch_commits(
             repo=args.github_repo,
             since=since,
             until=until,
+            fetch_details=not args.no_details,
         )
         logger.info("Fetched %d commits from GitHub.", len(gh_commits))
         all_commits.extend(gh_commits)
@@ -163,6 +193,50 @@ def fetch_commits(
         all_commits.extend(bb_commits)
 
     return all_commits
+
+
+# ---------------------------------------------------------------------------
+# Offline export / load helpers
+# ---------------------------------------------------------------------------
+
+
+def export_commits(commits: List[Commit], path: str, repos: List[str], source: str, since: datetime, until: datetime) -> None:
+    """Save commits to a JSON file for offline AI analysis."""
+    payload = {
+        "metadata": {
+            "repos": repos,
+            "source": source,
+            "since": since.isoformat(),
+            "until": until.isoformat(),
+            "exported_at": datetime.now(tz=timezone.utc).isoformat(),
+            "total_commits": len(commits),
+        },
+        "commits": [c.to_dict() for c in commits],
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+    logger.info("Exported %d commits to %s", len(commits), path)
+    print(f"Commits exported to {path}")
+
+
+def load_commits(path: str):  # type: ignore[return]
+    """Load commits from an exported JSON file.
+
+    Returns:
+        Tuple of (commits, repos, source, since, until).
+    """
+    with open(path, "r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+
+    meta = payload.get("metadata", {})
+    repos: List[str] = meta.get("repos", ["unknown"])
+    source: str = meta.get("source", "github")
+    since = datetime.fromisoformat(meta.get("since", datetime.now(tz=timezone.utc).isoformat()))
+    until = datetime.fromisoformat(meta.get("until", datetime.now(tz=timezone.utc).isoformat()))
+
+    commits = [Commit.from_dict(c) for c in payload.get("commits", [])]
+    logger.info("Loaded %d commits from %s (repos: %s, period: %s → %s)", len(commits), path, repos, since.date(), until.date())
+    return commits, repos, source, since, until
 
 
 def build_developer_summaries(
@@ -272,9 +346,51 @@ def main() -> None:
     # ---- Validate arguments ----
     validate_args(args, config)
 
+    # =========================================================
+    # OFFLINE MODE: load from a previously exported JSON file
+    # =========================================================
+    if args.offline_input:
+        logger.info("Offline mode: loading commits from %s", args.offline_input)
+        raw_commits, repos, source, since, until = load_commits(args.offline_input)
+
+        if not raw_commits:
+            logger.warning("No commits found in offline file. Exiting.")
+            sys.exit(0)
+
+        normalizer = CommitNormalizer()
+        normalized = normalizer.normalize_commits(raw_commits)
+        deduped = normalizer.deduplicate(normalized)
+        grouped = normalizer.group_by_author(deduped)
+        logger.info("Unique developers: %d", len(grouped))
+
+        heuristic = HeuristicAnalyzer()
+        ai_analyzer: Optional[VertexAIAnalyzer] = None
+        if not args.no_ai:
+            try:
+                ai_analyzer = VertexAIAnalyzer(
+                    project=config.google_cloud_project,
+                    location=config.google_cloud_location,
+                    tunnel_url=config.gemini_tunnel_url,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to initialize Vertex AI (%s). Using heuristic-only.", exc)
+
+        summaries = build_developer_summaries(grouped, heuristic, ai_analyzer)
+        summaries.sort(key=lambda s: s.impact_score, reverse=True)
+
+        reporter = ReportGenerator()
+        reporter.generate_console_report(summaries=summaries, repos=repos, since=since, until=until, source=source)
+        markdown = reporter.generate_markdown_report(summaries=summaries, repos=repos, since=since, until=until, source=source)
+        reporter.save_report(content=markdown, path=args.output)
+        print(f"\nReport saved to {args.output}")
+        return
+
+    # =========================================================
+    # LIVE MODE: fetch from GitHub / Bitbucket
+    # =========================================================
+
     # ---- Compute date range ----
     until = datetime.now(tz=timezone.utc)
-    # Use 30-day months as an approximation
     since = until - timedelta(days=args.months * 30)
     logger.info(
         "Analysis window: %s → %s (%d month(s))",
@@ -290,6 +406,15 @@ def main() -> None:
         sys.exit(0)
     logger.info("Total raw commits fetched: %d", len(raw_commits))
 
+    # ---- Export commits to file if requested ----
+    if args.export_commits:
+        repos_for_export: List[str] = []
+        if args.source in ("github", "both") and args.github_repo:
+            repos_for_export.append(args.github_repo)
+        if args.source in ("bitbucket", "both") and args.bitbucket_repo:
+            repos_for_export.append(args.bitbucket_repo)
+        export_commits(raw_commits, args.export_commits, repos_for_export, args.source, since, until)
+
     # ---- Normalize & deduplicate ----
     normalizer = CommitNormalizer()
     normalized = normalizer.normalize_commits(raw_commits)
@@ -304,52 +429,43 @@ def main() -> None:
     heuristic = HeuristicAnalyzer()
 
     # ---- AI analysis (optional) ----
-    ai_analyzer: Optional[VertexAIAnalyzer] = None
+    ai_analyzer_live: Optional[VertexAIAnalyzer] = None
     if not args.no_ai:
         try:
-            ai_analyzer = VertexAIAnalyzer(
+            ai_analyzer_live = VertexAIAnalyzer(
                 project=config.google_cloud_project,
                 location=config.google_cloud_location,
                 tunnel_url=config.gemini_tunnel_url,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Failed to initialize Vertex AI (%s). Falling back to heuristic-only mode.",
-                exc,
+                "Failed to initialize Vertex AI (%s). Falling back to heuristic-only mode.", exc
             )
 
     # ---- Build summaries ----
-    summaries = build_developer_summaries(grouped, heuristic, ai_analyzer)
+    summaries = build_developer_summaries(grouped, heuristic, ai_analyzer_live)
 
     # ---- Sort by impact score descending ----
     summaries.sort(key=lambda s: s.impact_score, reverse=True)
 
     # ---- Determine repos list and source label ----
-    repos: List[str] = []
+    repos_live: List[str] = []
     if args.source in ("github", "both") and args.github_repo:
-        repos.append(args.github_repo)
+        repos_live.append(args.github_repo)
     if args.source in ("bitbucket", "both") and args.bitbucket_repo:
-        repos.append(args.bitbucket_repo)
+        repos_live.append(args.bitbucket_repo)
 
     # ---- Generate reports ----
     reporter = ReportGenerator()
 
     logger.info("Generating console report...")
     reporter.generate_console_report(
-        summaries=summaries,
-        repos=repos,
-        since=since,
-        until=until,
-        source=args.source,
+        summaries=summaries, repos=repos_live, since=since, until=until, source=args.source,
     )
 
     logger.info("Generating Markdown report...")
     markdown = reporter.generate_markdown_report(
-        summaries=summaries,
-        repos=repos,
-        since=since,
-        until=until,
-        source=args.source,
+        summaries=summaries, repos=repos_live, since=since, until=until, source=args.source,
     )
 
     reporter.save_report(content=markdown, path=args.output)

@@ -90,6 +90,11 @@ class VertexAIAnalyzer:
         )
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
+        if os.environ.get("DISABLE_SSL_VERIFY", "").lower() in ("1", "true", "yes"):
+            self._session.verify = False
+            logger.warning("SSL verification disabled (DISABLE_SSL_VERIFY=true).")
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         logger.info(
             "VertexAIAnalyzer initialised — tunnel endpoint: %s (project=%s, location=%s)",
             self._tunnel_url,
@@ -208,35 +213,72 @@ class VertexAIAnalyzer:
         categories: Dict[str, int],
         base_score: float,
     ) -> str:
-        """Build the structured prompt sent to Gemini."""
-        commit_lines = "\n".join(
-            f"- [{c.timestamp.strftime('%Y-%m-%d')}] ({c.repo}) {c.message}"
-            for c in recent_commits
-        )
+        """Build the structured prompt sent to Gemini.
 
-        # Format categories for readability
+        Includes both commit messages AND file-level change context when available,
+        so the AI can reason beyond potentially misleading commit messages.
+        """
+        has_file_detail = any(c.has_detail for c in recent_commits)
+        total_additions = sum(c.additions for c in all_commits)
+        total_deletions = sum(c.deletions for c in all_commits)
+
+        # Build per-commit block
+        commit_blocks: List[str] = []
+        for c in recent_commits:
+            block = f"- [{c.timestamp.strftime('%Y-%m-%d')}] ({c.repo}) {c.message}"
+            if c.has_detail:
+                block += f"  (+{c.additions} -{c.deletions} lines, {len(c.file_stats)} file(s))"
+                detail = c.file_detail_summary(max_files=5)
+                if detail:
+                    block += f"\n{detail}"
+            commit_blocks.append(block)
+
+        commit_section = "\n".join(commit_blocks)
+
+        # Category summary
         cat_str = ", ".join(
             f"{k}: {v}" for k, v in sorted(categories.items(), key=lambda x: -x[1]) if v > 0
         ) or "none"
 
         total = len(all_commits)
 
+        # Build file-context note
+        file_context_note = ""
+        if has_file_detail:
+            file_context_note = (
+                f"Total lines changed across all commits: +{total_additions} -{total_deletions}\n"
+                "Note: File paths and line counts are provided alongside messages — "
+                "use BOTH the actual file changes AND the commit message to assess impact. "
+                "Do NOT rely solely on the commit message wording as it may be imprecise.\n\n"
+            )
+        else:
+            file_context_note = (
+                "Note: File-level detail was not available for this analysis. "
+                "Classification is based on commit messages only.\n\n"
+            )
+
         prompt = (
-            "You are an engineering impact analyst. "
-            "Analyze the following developer's commits and provide a structured assessment.\n\n"
+            "You are a senior engineering impact analyst with deep expertise in software development.\n"
+            "Analyze the following developer's commits and provide a structured impact assessment.\n\n"
             f"Developer: {author}\n"
             f"Total Commits: {total}\n"
-            f"Categories: {cat_str}\n"
+            f"Commit Categories (heuristic): {cat_str}\n"
             f"Base Heuristic Score: {base_score}/10\n\n"
-            f"Recent Commits (up to {_MAX_COMMITS_PER_CALL}):\n"
-            f"{commit_lines}\n\n"
+            f"{file_context_note}"
+            f"Recent Commits (up to {_MAX_COMMITS_PER_CALL}, with file changes where available):\n"
+            f"{commit_section}\n\n"
+            "Assessment guidelines:\n"
+            "- Judge impact by WHAT WAS ACTUALLY CHANGED (files, scope, complexity), not just the message wording.\n"
+            "- A commit saying 'minor fix' that touches core infrastructure files may be high impact.\n"
+            "- A commit with a grand message but only touching docs/comments may be low impact.\n"
+            "- Consider: breadth (files touched), depth (lines changed), criticality (which systems).\n\n"
             "Respond ONLY with valid JSON in this exact format:\n"
             "{\n"
             '  "impact_score": <float 1-10>,\n'
             '  "summary": "<2-3 sentence summary of developer impact>",\n'
             '  "key_contributions": ["<contribution 1>", "<contribution 2>", "<contribution 3>"],\n'
             '  "themes": ["<theme 1>", "<theme 2>"],\n'
-            '  "reasoning": "<brief explanation of score>"\n'
+            '  "reasoning": "<explanation referencing specific files or patterns observed>"\n'
             "}"
         )
         return prompt
