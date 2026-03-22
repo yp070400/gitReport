@@ -13,8 +13,10 @@ class Config:
     google_cloud_location: str = "us-central1"
     github_token: Optional[str] = field(default=None)
     bitbucket_token: Optional[str] = field(default=None)
-    # Tunnel endpoint for Gemini — overrides the default http://localhost/generate
+    # Tunnel endpoint for Gemini — overrides the default http://localhost:8080/generate
     gemini_tunnel_url: Optional[str] = field(default=None)
+    # Bearer token for the tunnel service (AUTH_TOKEN on the server side)
+    gemini_tunnel_token: Optional[str] = field(default=None)
 
 
 def load_config() -> Config:
@@ -25,7 +27,8 @@ def load_config() -> Config:
         GOOGLE_CLOUD_LOCATION – Vertex AI region label (default: us-central1).
         GITHUB_TOKEN          – Personal access token or fine-grained token for GitHub.
         BITBUCKET_TOKEN       – Bitbucket App Password or access token.
-        GEMINI_TUNNEL_URL     – Override the local tunnel endpoint (default: http://localhost/generate).
+        GEMINI_TUNNEL_URL     – Override the local tunnel endpoint (default: http://localhost:8080/generate).
+        GEMINI_TUNNEL_TOKEN   – Bearer token required by the tunnel service (AUTH_TOKEN on server).
 
     Returns:
         Populated :class:`Config` instance.
@@ -35,6 +38,7 @@ def load_config() -> Config:
     github_token: Optional[str] = os.environ.get("GITHUB_TOKEN") or None
     bitbucket_token: Optional[str] = os.environ.get("BITBUCKET_TOKEN") or None
     tunnel_url: Optional[str] = os.environ.get("GEMINI_TUNNEL_URL") or None
+    tunnel_token: Optional[str] = os.environ.get("GEMINI_TUNNEL_TOKEN") or None
 
     return Config(
         google_cloud_project=project,
@@ -42,4 +46,5 @@ def load_config() -> Config:
         github_token=github_token,
         bitbucket_token=bitbucket_token,
         gemini_tunnel_url=tunnel_url,
+        gemini_tunnel_token=tunnel_token,
     )

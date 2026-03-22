@@ -371,6 +371,7 @@ def main() -> None:
                     project=config.google_cloud_project,
                     location=config.google_cloud_location,
                     tunnel_url=config.gemini_tunnel_url,
+                    tunnel_token=config.gemini_tunnel_token,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Failed to initialize Vertex AI (%s). Using heuristic-only.", exc)
@@ -436,6 +437,7 @@ def main() -> None:
                 project=config.google_cloud_project,
                 location=config.google_cloud_location,
                 tunnel_url=config.gemini_tunnel_url,
+                tunnel_token=config.gemini_tunnel_token,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(

@@ -18,7 +18,7 @@ _MAX_RETRIES = 3
 _INITIAL_BACKOFF = 2.0  # seconds
 
 # Default tunnel endpoint — override with GEMINI_TUNNEL_URL env var.
-_DEFAULT_TUNNEL_URL = "http://localhost/generate"
+_DEFAULT_TUNNEL_URL = "http://localhost:8080/generate"
 
 
 # ---------------------------------------------------------------------------
@@ -73,14 +73,17 @@ class VertexAIAnalyzer:
         project: Optional[str],
         location: str,
         tunnel_url: Optional[str] = None,
+        tunnel_token: Optional[str] = None,
     ) -> None:
         """Configure the analyzer to use the local tunnel endpoint.
 
         Args:
-            project:    GCP project ID (informational only; passed through for logging).
-            location:   Vertex AI region label (informational only).
-            tunnel_url: Override the tunnel endpoint URL. Falls back to the
-                        ``GEMINI_TUNNEL_URL`` env var, then ``http://localhost/generate``.
+            project:      GCP project ID (informational only; passed through for logging).
+            location:     Vertex AI region label (informational only).
+            tunnel_url:   Override the tunnel endpoint URL. Falls back to the
+                          ``GEMINI_TUNNEL_URL`` env var, then ``http://localhost:8080/generate``.
+            tunnel_token: Bearer token for the tunnel service. Falls back to the
+                          ``GEMINI_TUNNEL_TOKEN`` env var.
         """
         self._project = project
         self._location = location
@@ -89,7 +92,14 @@ class VertexAIAnalyzer:
             or os.environ.get("GEMINI_TUNNEL_URL", _DEFAULT_TUNNEL_URL)
         )
         self._session = requests.Session()
-        self._session.headers.update({"Content-Type": "application/json"})
+        headers = {"Content-Type": "application/json"}
+        token = tunnel_token or os.environ.get("GEMINI_TUNNEL_TOKEN", "")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+            logger.info("Tunnel auth token configured.")
+        else:
+            logger.warning("GEMINI_TUNNEL_TOKEN is not set — tunnel requests will be unauthenticated and may return 401.")
+        self._session.headers.update(headers)
         if os.environ.get("DISABLE_SSL_VERIFY", "").lower() in ("1", "true", "yes"):
             self._session.verify = False
             logger.warning("SSL verification disabled (DISABLE_SSL_VERIFY=true).")
