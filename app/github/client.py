@@ -189,7 +189,7 @@ class GitHubClient:
 
     def _build_curl_cmd(self, url: str) -> List[str]:
         """Build the curl command list for a GET request."""
-        cmd = ["curl", "-s", "-i"]
+        cmd = ["curl", "-s", "-i", "-L"]
         if not self._ssl_verify:
             cmd.append("-k")
         cmd.extend(["-H", "Accept: application/vnd.github+json"])
@@ -294,25 +294,46 @@ class GitHubClient:
 
         raw = result.stdout
 
-        # curl -i outputs: status line + headers + blank line + body
-        # Split on the first blank line (handles both \r\n\r\n and \n\n)
-        if "\r\n\r\n" in raw:
-            header_section, _, body = raw.partition("\r\n\r\n")
-        elif "\n\n" in raw:
-            header_section, _, body = raw.partition("\n\n")
-        else:
-            header_section, body = raw, ""
+        if not raw.strip():
+            stderr_hint = result.stderr.strip()[:200] if result.stderr else "no stderr"
+            raise RuntimeError(
+                f"curl returned empty output for {url}. stderr: {stderr_hint}"
+            )
 
-        # Parse status code from first line: "HTTP/1.1 200 OK"
+        # With -L, curl follows redirects and emits multiple HTTP response blocks:
+        #   HTTP/1.1 301 ...\r\nheaders\r\n\r\nHTTP/2 200 ...\r\nheaders\r\n\r\n{body}
+        #
+        # Strategy: find the START of the LAST HTTP/ block, then split only that
+        # block on its first blank line. This avoids splitting the JSON body on
+        # any \n\n sequences it may contain.
+        http_starts = [m.start() for m in re.finditer(r"^HTTP/", raw, re.MULTILINE)]
+        if not http_starts:
+            raise RuntimeError(
+                f"No HTTP response found in curl output for {url}. "
+                f"Raw output: {raw[:400]}"
+            )
+
+        last_block = raw[http_starts[-1]:]
+
+        # Split the final HTTP block on the first blank line to get headers + body
+        if "\r\n\r\n" in last_block:
+            header_section, _, body = last_block.partition("\r\n\r\n")
+        elif "\n\n" in last_block:
+            header_section, _, body = last_block.partition("\n\n")
+        else:
+            header_section, body = last_block, ""
+
+        # Parse status code from "HTTP/x.x NNN Reason"
         status_line = header_section.split("\n")[0].strip()
         try:
             status_code = int(status_line.split()[1])
         except (IndexError, ValueError):
             raise RuntimeError(
                 f"Could not parse HTTP status from curl output. "
-                f"First line: {status_line!r}. Full output: {raw[:300]}"
+                f"Status line: {status_line!r}. Full output: {raw[:400]}"
             )
 
+        logger.debug("curl %s → HTTP %d, body_len=%d", url, status_code, len(body))
         return status_code, body.strip(), header_section
 
     # ------------------------------------------------------------------
