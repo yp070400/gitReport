@@ -27,8 +27,8 @@ def load_config() -> Config:
         GOOGLE_CLOUD_LOCATION – Vertex AI region label (default: us-central1).
         GITHUB_TOKEN          – Personal access token or fine-grained token for GitHub.
         BITBUCKET_TOKEN       – Bitbucket App Password or access token.
-        GEMINI_TUNNEL_URL     – Override the local tunnel endpoint (default: http://localhost:8080/generate).
-        GEMINI_TUNNEL_TOKEN   – Bearer token required by the tunnel service (AUTH_TOKEN on server).
+        GEMINI_TUNNEL_URL     – Service endpoint (default: https://gal.d1.galileo-eu.dev.gcp.com/generate).
+        GEMINI_TUNNEL_TOKEN   – Bearer token for the service (set AUTH_TOKEN on server side).
 
     Returns:
         Populated :class:`Config` instance.

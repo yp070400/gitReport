@@ -17,8 +17,28 @@ _MAX_COMMITS_PER_CALL = 20
 _MAX_RETRIES = 3
 _INITIAL_BACKOFF = 2.0  # seconds
 
-# Default tunnel endpoint — override with GEMINI_TUNNEL_URL env var.
-_DEFAULT_TUNNEL_URL = "http://localhost:8080/generate"
+# Default service endpoint — override with GEMINI_TUNNEL_URL env var.
+_DEFAULT_TUNNEL_URL = "https://gal.d1.galileo-eu.dev.gcp.com/generate"
+
+# Temperature for structured JSON responses — low value keeps output deterministic.
+_DEFAULT_TEMPERATURE = 0.2
+
+# System instruction sent with every request to set the AI's persona and output contract.
+_SYSTEM_INSTRUCTION = (
+    "You are a senior engineering impact analyst with deep expertise in software development, "
+    "code quality, and developer productivity. "
+    "Your job is to evaluate a developer's commits — including the actual files changed and line diffs — "
+    "and produce a fair, evidence-based impact assessment. "
+    "Rules:\n"
+    "1. Judge impact by WHAT WAS ACTUALLY CHANGED (file paths, line counts, system criticality), "
+    "not just the commit message wording. A vague message like 'fix' on a core infrastructure file "
+    "may be high impact; a grand message on a comment-only change is low impact.\n"
+    "2. Consider breadth (number of files/systems touched), depth (lines changed), "
+    "and criticality (infrastructure, security, core business logic vs. docs/tests).\n"
+    "3. Be calibrated: scores 8-10 are for genuinely significant contributions; "
+    "scores 4-6 are solid everyday work; scores 1-3 indicate minimal or low-quality changes.\n"
+    "4. Always respond with valid JSON only — no markdown fences, no prose outside the JSON object."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +177,11 @@ class VertexAIAnalyzer:
             try:
                 http_response = self._session.post(
                     self._tunnel_url,
-                    json={"prompt": prompt},
+                    json={
+                        "prompt": prompt,
+                        "temperature": _DEFAULT_TEMPERATURE,
+                        "system_instruction": _SYSTEM_INSTRUCTION,
+                    },
                     timeout=60,
                 )
                 http_response.raise_for_status()
@@ -268,27 +292,21 @@ class VertexAIAnalyzer:
             )
 
         prompt = (
-            "You are a senior engineering impact analyst with deep expertise in software development.\n"
-            "Analyze the following developer's commits and provide a structured impact assessment.\n\n"
-            f"Developer: {author}\n"
-            f"Total Commits: {total}\n"
-            f"Commit Categories (heuristic): {cat_str}\n"
-            f"Base Heuristic Score: {base_score}/10\n\n"
+            f"Analyze the engineering impact of developer: {author}\n\n"
+            f"Period stats:\n"
+            f"  Total commits  : {total}\n"
+            f"  Categories     : {cat_str}\n"
+            f"  Heuristic score: {base_score}/10 (use as a reference, not a constraint)\n\n"
             f"{file_context_note}"
-            f"Recent Commits (up to {_MAX_COMMITS_PER_CALL}, with file changes where available):\n"
+            f"Commits (most recent first, up to {_MAX_COMMITS_PER_CALL}):\n"
             f"{commit_section}\n\n"
-            "Assessment guidelines:\n"
-            "- Judge impact by WHAT WAS ACTUALLY CHANGED (files, scope, complexity), not just the message wording.\n"
-            "- A commit saying 'minor fix' that touches core infrastructure files may be high impact.\n"
-            "- A commit with a grand message but only touching docs/comments may be low impact.\n"
-            "- Consider: breadth (files touched), depth (lines changed), criticality (which systems).\n\n"
-            "Respond ONLY with valid JSON in this exact format:\n"
+            "Return ONLY this JSON object:\n"
             "{\n"
-            '  "impact_score": <float 1-10>,\n'
-            '  "summary": "<2-3 sentence summary of developer impact>",\n'
-            '  "key_contributions": ["<contribution 1>", "<contribution 2>", "<contribution 3>"],\n'
+            '  "impact_score": <float 1.0-10.0>,\n'
+            '  "summary": "<2-3 sentences describing this developer\'s overall impact and work quality>",\n'
+            '  "key_contributions": ["<specific contribution referencing actual files/systems>", ...],\n'
             '  "themes": ["<theme 1>", "<theme 2>"],\n'
-            '  "reasoning": "<explanation referencing specific files or patterns observed>"\n'
+            '  "reasoning": "<cite specific commits, files, or patterns that drove your score>"\n'
             "}"
         )
         return prompt
