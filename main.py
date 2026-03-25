@@ -53,14 +53,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--github-repo",
         metavar="OWNER/REPO",
+        action="append",
         default=None,
-        help="GitHub repository in owner/repo format.",
+        dest="github_repo",
+        help="GitHub repository in owner/repo format. Repeat to scan multiple repos.",
     )
     parser.add_argument(
         "--bitbucket-repo",
         metavar="WORKSPACE/REPO",
+        action="append",
         default=None,
-        help="Bitbucket repository in workspace/repo_slug format.",
+        dest="bitbucket_repo",
+        help="Bitbucket repository in workspace/repo_slug format. Repeat for multiple.",
     )
     parser.add_argument(
         "--months",
@@ -172,25 +176,23 @@ def fetch_commits(
     if args.source in ("github", "both"):
         logger.info("Connecting to GitHub API...")
         gh_client = GitHubClient(token=config.github_token)
-        gh_commits = gh_client.fetch_commits(
-            repo=args.github_repo,
-            since=since,
-            until=until,
-            fetch_details=not args.no_details,
-        )
-        logger.info("Fetched %d commits from GitHub.", len(gh_commits))
-        all_commits.extend(gh_commits)
+        for repo in (args.github_repo or []):
+            gh_commits = gh_client.fetch_commits(
+                repo=repo,
+                since=since,
+                until=until,
+                fetch_details=not args.no_details,
+            )
+            logger.info("Fetched %d commits from GitHub repo: %s", len(gh_commits), repo)
+            all_commits.extend(gh_commits)
 
     if args.source in ("bitbucket", "both"):
         logger.info("Connecting to Bitbucket API...")
         bb_client = BitbucketClient(token=config.bitbucket_token)
-        bb_commits = bb_client.fetch_commits(
-            repo=args.bitbucket_repo,
-            since=since,
-            until=until,
-        )
-        logger.info("Fetched %d commits from Bitbucket.", len(bb_commits))
-        all_commits.extend(bb_commits)
+        for repo in (args.bitbucket_repo or []):
+            bb_commits = bb_client.fetch_commits(repo=repo, since=since, until=until)
+            logger.info("Fetched %d commits from Bitbucket repo: %s", len(bb_commits), repo)
+            all_commits.extend(bb_commits)
 
     return all_commits
 
@@ -384,6 +386,13 @@ def main() -> None:
         markdown = reporter.generate_markdown_report(summaries=summaries, repos=repos, since=since, until=until, source=source)
         reporter.save_report(content=markdown, path=args.output)
         print(f"\nReport saved to {args.output}")
+
+        json_data = reporter.generate_json_report(
+            summaries=summaries, repos=repos, since=since, until=until, source=source,
+        )
+        json_path = args.output.replace(".md", ".json") if args.output.endswith(".md") else args.output + ".json"
+        reporter.save_json_report(data=json_data, path=json_path)
+        print(f"JSON report saved to {json_path}")
         return
 
     # =========================================================
@@ -410,10 +419,10 @@ def main() -> None:
     # ---- Export commits to file if requested ----
     if args.export_commits:
         repos_for_export: List[str] = []
-        if args.source in ("github", "both") and args.github_repo:
-            repos_for_export.append(args.github_repo)
-        if args.source in ("bitbucket", "both") and args.bitbucket_repo:
-            repos_for_export.append(args.bitbucket_repo)
+        if args.source in ("github", "both"):
+            repos_for_export.extend(args.github_repo or [])
+        if args.source in ("bitbucket", "both"):
+            repos_for_export.extend(args.bitbucket_repo or [])
         export_commits(raw_commits, args.export_commits, repos_for_export, args.source, since, until)
 
     # ---- Normalize & deduplicate ----
@@ -452,10 +461,10 @@ def main() -> None:
 
     # ---- Determine repos list and source label ----
     repos_live: List[str] = []
-    if args.source in ("github", "both") and args.github_repo:
-        repos_live.append(args.github_repo)
-    if args.source in ("bitbucket", "both") and args.bitbucket_repo:
-        repos_live.append(args.bitbucket_repo)
+    if args.source in ("github", "both"):
+        repos_live.extend(args.github_repo or [])
+    if args.source in ("bitbucket", "both"):
+        repos_live.extend(args.bitbucket_repo or [])
 
     # ---- Generate reports ----
     reporter = ReportGenerator()
@@ -472,6 +481,13 @@ def main() -> None:
 
     reporter.save_report(content=markdown, path=args.output)
     print(f"\nReport saved to {args.output}")
+
+    json_data = reporter.generate_json_report(
+        summaries=summaries, repos=repos_live, since=since, until=until, source=args.source,
+    )
+    json_path = args.output.replace(".md", ".json") if args.output.endswith(".md") else args.output + ".json"
+    reporter.save_json_report(data=json_data, path=json_path)
+    print(f"JSON report saved to {json_path}")
 
 
 if __name__ == "__main__":

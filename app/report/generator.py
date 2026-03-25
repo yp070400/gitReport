@@ -367,6 +367,101 @@ class ReportGenerator:
             fh.write(content)
         logger.info("Report saved to: %s", path)
 
+    def generate_json_report(
+        self,
+        summaries: List[DeveloperSummary],
+        repos: List[str],
+        since: datetime,
+        until: datetime,
+        source: str,
+    ) -> dict:
+        """Generate a JSON-serializable report dict for the React dashboard."""
+        team_commits = sum(s.total_commits() for s in summaries)
+        team_add = sum(c.additions for s in summaries for c in s.commits)
+        team_del = sum(c.deletions for s in summaries for c in s.commits)
+        avg_score = sum(s.impact_score for s in summaries) / len(summaries) if summaries else 0.0
+
+        all_cats: dict = {}
+        for s in summaries:
+            for cat, cnt in s.categories.items():
+                all_cats[cat] = all_cats.get(cat, 0) + cnt
+
+        developers = []
+        for rank, s in enumerate(summaries, 1):
+            add = sum(c.additions for c in s.commits)
+            dele = sum(c.deletions for c in s.commits)
+
+            # Aggregate top files
+            all_files: dict = {}
+            for commit in s.commits:
+                for fs in commit.file_stats:
+                    prev = all_files.get(fs.filename, (0, 0))
+                    all_files[fs.filename] = (prev[0] + fs.additions, prev[1] + fs.deletions)
+            top_files = sorted(all_files.items(), key=lambda x: x[1][0] + x[1][1], reverse=True)[:8]
+
+            # Recent commits (lightweight — no patch)
+            recent = sorted(s.commits, key=lambda c: c.timestamp, reverse=True)[:10]
+
+            developers.append({
+                "rank": rank,
+                "author": s.author,
+                "impact_score": s.impact_score,
+                "tier": _tier_label(s.impact_score),
+                "is_high_impact": s.is_high_impact(),
+                "is_low_value": s.is_low_value(),
+                "total_commits": s.total_commits(),
+                "additions": add,
+                "deletions": dele,
+                "dominant_category": s.dominant_category(),
+                "categories": s.categories,
+                "themes": s.themes,
+                "ai_summary": s.ai_summary,
+                "key_contributions": s.key_contributions,
+                "reasoning": s.reasoning,
+                "top_files": [
+                    {"filename": f, "additions": a, "deletions": d}
+                    for f, (a, d) in top_files
+                ],
+                "recent_commits": [
+                    {
+                        "date": c.timestamp.strftime("%Y-%m-%d"),
+                        "message": c.message,
+                        "sha": c.sha[:7],
+                        "repo": c.repo,
+                    }
+                    for c in recent
+                ],
+            })
+
+        return {
+            "meta": {
+                "repos": repos,
+                "source": source.upper(),
+                "since": _fmt_date(since),
+                "until": _fmt_date(until),
+                "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+            },
+            "team": {
+                "total_commits": team_commits,
+                "contributors": len(summaries),
+                "total_additions": team_add,
+                "total_deletions": team_del,
+                "avg_score": round(avg_score, 2),
+                "high_impact_count": sum(1 for s in summaries if s.is_high_impact()),
+                "low_value_count": sum(1 for s in summaries if s.is_low_value()),
+                "categories": all_cats,
+            },
+            "developers": developers,
+        }
+
+    def save_json_report(self, data: dict, path: str = "report.json") -> None:
+        import json as _json
+        parent = os.path.dirname(os.path.abspath(path))
+        os.makedirs(parent, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            _json.dump(data, fh, indent=2)
+        logger.info("JSON report saved to: %s", path)
+
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
