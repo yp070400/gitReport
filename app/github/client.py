@@ -177,6 +177,7 @@ class GitHubClient:
                 status=f.get("status", "modified"),
                 additions=f.get("additions", 0),
                 deletions=f.get("deletions", 0),
+                patch=f.get("patch", ""),
             )
             for f in data.get("files", [])
             if f.get("filename")

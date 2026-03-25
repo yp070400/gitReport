@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 
+_MAX_PATCH_CHARS = 1500  # truncate individual file patches to keep prompt size sane
+
+
 @dataclass
 class FileStat:
     """Represents a single file changed in a commit."""
@@ -13,6 +16,15 @@ class FileStat:
     status: str   # added | modified | removed | renamed
     additions: int = 0
     deletions: int = 0
+    patch: str = ""  # actual unified diff from GitHub API
+
+    def patch_preview(self) -> str:
+        """Return patch content truncated to _MAX_PATCH_CHARS."""
+        if not self.patch:
+            return ""
+        if len(self.patch) <= _MAX_PATCH_CHARS:
+            return self.patch
+        return self.patch[:_MAX_PATCH_CHARS] + "\n    ... (truncated)"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -20,6 +32,7 @@ class FileStat:
             "status": self.status,
             "additions": self.additions,
             "deletions": self.deletions,
+            "patch": self.patch,
         }
 
     @classmethod
@@ -29,6 +42,7 @@ class FileStat:
             status=data.get("status", "modified"),
             additions=data.get("additions", 0),
             deletions=data.get("deletions", 0),
+            patch=data.get("patch", ""),
         )
 
 
@@ -77,7 +91,7 @@ class Commit:
         return [f.filename for f in self.file_stats]
 
     def file_detail_summary(self, max_files: int = 10) -> str:
-        """Human-readable summary of files changed, used in AI prompts."""
+        """Human-readable summary of files changed with diff content, used in AI prompts."""
         if not self.file_stats:
             return ""
         lines = []
@@ -85,6 +99,11 @@ class Commit:
             lines.append(
                 f"    [{fs.status:8s}] {fs.filename} (+{fs.additions} -{fs.deletions})"
             )
+            patch = fs.patch_preview()
+            if patch:
+                # Indent patch lines so they're visually nested under the file
+                for patch_line in patch.splitlines():
+                    lines.append(f"      {patch_line}")
         if len(self.file_stats) > max_files:
             remaining = len(self.file_stats) - max_files
             lines.append(f"    ... and {remaining} more file(s)")
