@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from app.ai.vertex import VertexAIAnalyzer
 from app.analyzer.heuristic import HeuristicAnalyzer
 from app.analyzer.normalizer import CommitNormalizer
+from app.bitbucket.client import BitbucketClient
 from app.github.client import GitHubClient
 from app.report.generator import ReportGenerator
 from app.utils.config import load_config
@@ -35,10 +36,12 @@ app.add_middleware(
 
 
 class ScanRequest(BaseModel):
-    repos: List[str]
-    months: int = 3
     source: str = "github"
+    github_repos: List[str] = []
+    bitbucket_repos: List[str] = []
+    months: int = 3
     github_token: Optional[str] = None
+    bitbucket_token: Optional[str] = None
     gemini_token: Optional[str] = None
     no_ai: bool = False
     no_details: bool = False
@@ -65,19 +68,37 @@ def scan(req: ScanRequest):
     since = until - timedelta(days=req.months * 30)
 
     all_commits = []
+    all_repos: List[str] = []
 
-    if req.source in ("github", "both"):
+    if req.source in ("github", "both") and req.github_repos:
         token = req.github_token or config.github_token
         gh_client = GitHubClient(token=token)
-        for repo in req.repos:
+        for repo in req.github_repos:
             commits = gh_client.fetch_commits(
                 repo=repo,
                 since=since,
                 until=until,
                 fetch_details=not req.no_details,
             )
-            logger.info("Fetched %d commits from %s", len(commits), repo)
+            logger.info("Fetched %d commits from GitHub: %s", len(commits), repo)
             all_commits.extend(commits)
+        all_repos.extend(req.github_repos)
+
+    if req.source in ("bitbucket", "both") and req.bitbucket_repos:
+        bb_token = req.bitbucket_token or config.bitbucket_token
+        if not bb_token:
+            return {"error": "BITBUCKET_TOKEN is required for Bitbucket source. Set it in env or provide in the scan request."}
+        bb_client = BitbucketClient(token=bb_token)
+        for repo in req.bitbucket_repos:
+            commits = bb_client.fetch_commits(
+                repo=repo,
+                since=since,
+                until=until,
+                fetch_details=not req.no_details,
+            )
+            logger.info("Fetched %d commits from Bitbucket Server: %s", len(commits), repo)
+            all_commits.extend(commits)
+        all_repos.extend(req.bitbucket_repos)
 
     if not all_commits:
         return {"error": "No commits found for the specified repos and time range."}
@@ -107,12 +128,12 @@ def scan(req: ScanRequest):
     reporter = ReportGenerator()
 
     markdown = reporter.generate_markdown_report(
-        summaries=summaries, repos=req.repos, since=since, until=until, source=req.source,
+        summaries=summaries, repos=all_repos, since=since, until=until, source=req.source,
     )
     reporter.save_report(content=markdown, path="report.md")
 
     report_json = reporter.generate_json_report(
-        summaries=summaries, repos=req.repos, since=since, until=until, source=req.source,
+        summaries=summaries, repos=all_repos, since=since, until=until, source=req.source,
     )
     reporter.save_json_report(data=report_json, path="report.json")
 

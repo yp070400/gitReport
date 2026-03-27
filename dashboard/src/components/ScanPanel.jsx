@@ -1,27 +1,84 @@
 import { useState } from 'react'
 
+function RepoList({ repos, onChange, placeholder, label }) {
+  function add() { onChange([...repos, '']) }
+  function remove(i) { onChange(repos.filter((_, idx) => idx !== i)) }
+  function update(i, val) { onChange(repos.map((r, idx) => idx === i ? val : r)) }
+
+  return (
+    <div>
+      <label className="block text-sm font-semibold text-slate-700 mb-2">{label}</label>
+      <div className="space-y-2">
+        {repos.map((repo, i) => (
+          <div key={i} className="flex gap-2">
+            <input
+              type="text"
+              value={repo}
+              onChange={e => update(i, e.target.value)}
+              placeholder={placeholder}
+              className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            {repos.length > 1 && (
+              <button type="button" onClick={() => remove(i)}
+                className="text-red-400 hover:text-red-600 px-2 text-lg">×</button>
+            )}
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={add}
+        className="mt-2 text-sm text-blue-500 hover:text-blue-700 font-medium">
+        + Add repository
+      </button>
+    </div>
+  )
+}
+
+function TokenInput({ label, hint, value, onChange, placeholder }) {
+  return (
+    <div>
+      <label className="block text-sm font-semibold text-slate-700 mb-2">
+        {label} {hint && <span className="font-normal text-slate-400">{hint}</span>}
+      </label>
+      <input
+        type="password"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+      />
+    </div>
+  )
+}
+
 export default function ScanPanel({ onSubmit, onClose }) {
-  const [repos, setRepos] = useState([''])
-  const [months, setMonths] = useState(3)
   const [source, setSource] = useState('github')
+  const [githubRepos, setGithubRepos] = useState([''])
+  const [bitbucketRepos, setBitbucketRepos] = useState([''])
+  const [months, setMonths] = useState(3)
   const [githubToken, setGithubToken] = useState('')
+  const [bitbucketToken, setBitbucketToken] = useState('')
   const [geminiToken, setGeminiToken] = useState('')
   const [noAi, setNoAi] = useState(false)
   const [noDetails, setNoDetails] = useState(false)
 
-  function addRepo() { setRepos([...repos, '']) }
-  function removeRepo(i) { setRepos(repos.filter((_, idx) => idx !== i)) }
-  function updateRepo(i, val) { setRepos(repos.map((r, idx) => idx === i ? val : r)) }
+  const showGithub = source === 'github' || source === 'both'
+  const showBitbucket = source === 'bitbucket' || source === 'both'
 
   function handleSubmit(e) {
     e.preventDefault()
-    const validRepos = repos.filter(r => r.trim())
-    if (!validRepos.length) return
+    const validGh = githubRepos.filter(r => r.trim())
+    const validBb = bitbucketRepos.filter(r => r.trim())
+
+    if (showGithub && !validGh.length && !showBitbucket) return
+    if (showBitbucket && !validBb.length && !showGithub) return
+
     onSubmit({
-      repos: validRepos,
-      months,
       source,
+      github_repos: showGithub ? validGh : [],
+      bitbucket_repos: showBitbucket ? validBb : [],
+      months,
       github_token: githubToken || undefined,
+      bitbucket_token: bitbucketToken || undefined,
       gemini_token: geminiToken || undefined,
       no_ai: noAi,
       no_details: noDetails,
@@ -62,31 +119,25 @@ export default function ScanPanel({ onSubmit, onClose }) {
             </div>
           </div>
 
-          {/* Repos */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Repositories</label>
-            <div className="space-y-2">
-              {repos.map((repo, i) => (
-                <div key={i} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={repo}
-                    onChange={e => updateRepo(i, e.target.value)}
-                    placeholder="owner/repo"
-                    className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  />
-                  {repos.length > 1 && (
-                    <button type="button" onClick={() => removeRepo(i)}
-                      className="text-red-400 hover:text-red-600 px-2 text-lg">×</button>
-                  )}
-                </div>
-              ))}
-            </div>
-            <button type="button" onClick={addRepo}
-              className="mt-2 text-sm text-blue-500 hover:text-blue-700 font-medium">
-              + Add repository
-            </button>
-          </div>
+          {/* GitHub repos */}
+          {showGithub && (
+            <RepoList
+              repos={githubRepos}
+              onChange={setGithubRepos}
+              placeholder="owner/repo"
+              label="GitHub Repositories"
+            />
+          )}
+
+          {/* Bitbucket repos */}
+          {showBitbucket && (
+            <RepoList
+              repos={bitbucketRepos}
+              onChange={setBitbucketRepos}
+              placeholder="PROJECT_KEY/repo-slug"
+              label="Bitbucket Server Repositories"
+            />
+          )}
 
           {/* Months */}
           <div>
@@ -101,24 +152,35 @@ export default function ScanPanel({ onSubmit, onClose }) {
           </div>
 
           {/* GitHub Token */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              GitHub Token <span className="font-normal text-slate-400">(optional for public repos)</span>
-            </label>
-            <input type="password" value={githubToken} onChange={e => setGithubToken(e.target.value)}
+          {showGithub && (
+            <TokenInput
+              label="GitHub Token"
+              hint="(optional for public repos)"
+              value={githubToken}
+              onChange={setGithubToken}
               placeholder="ghp_..."
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-          </div>
+            />
+          )}
+
+          {/* Bitbucket Token */}
+          {showBitbucket && (
+            <TokenInput
+              label="Bitbucket Server Token"
+              hint="(Personal Access Token)"
+              value={bitbucketToken}
+              onChange={setBitbucketToken}
+              placeholder="PAT from stash.gto.db.com"
+            />
+          )}
 
           {/* Gemini Token */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              AI Service Token <span className="font-normal text-slate-400">(overrides env var)</span>
-            </label>
-            <input type="password" value={geminiToken} onChange={e => setGeminiToken(e.target.value)}
-              placeholder="Bearer token for AI service"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-          </div>
+          <TokenInput
+            label="AI Service Token"
+            hint="(overrides env var)"
+            value={geminiToken}
+            onChange={setGeminiToken}
+            placeholder="Bearer token for AI service"
+          />
 
           {/* Options */}
           <div className="space-y-3">
