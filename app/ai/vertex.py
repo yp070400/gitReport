@@ -108,9 +108,15 @@ class VertexAIAnalyzer:
         self._project = project
         self._location = location
         self._tunnel_url: str = (
-            tunnel_url
-            or os.environ.get("GEMINI_TUNNEL_URL", _DEFAULT_TUNNEL_URL)
+            (tunnel_url or "").strip()
+            or (os.environ.get("GEMINI_TUNNEL_URL") or "").strip()
+            or _DEFAULT_TUNNEL_URL
         )
+        if not self._tunnel_url.startswith(("http://", "https://")):
+            raise ValueError(
+                f"Invalid tunnel URL {self._tunnel_url!r}: must start with http:// or https://. "
+                "Set GEMINI_TUNNEL_URL to the full service endpoint URL."
+            )
         self._session = requests.Session()
         headers = {"Content-Type": "application/json"}
         token = tunnel_token or os.environ.get("GEMINI_TUNNEL_TOKEN", "")
