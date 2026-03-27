@@ -13,7 +13,7 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 # Bitbucket Server (Stash) REST API 1.0
-_BITBUCKET_SERVER_URL = os.environ.get("BITBUCKET_SERVER_URL", "https://stash.gto.db.com")
+_BITBUCKET_SERVER_URL = os.environ.get("BITBUCKET_SERVER_URL", "https://stash.gto.db.com:8081")
 _API_BASE = f"{_BITBUCKET_SERVER_URL}/rest/api/1.0"
 
 _MAX_RETRIES = 5
@@ -40,7 +40,7 @@ class BitbucketClient:
     Generate one at: https://stash.gto.db.com/plugins/servlet/access-tokens/manage
     """
 
-    def __init__(self, token: str) -> None:
+    def __init__(self, token: str, username: Optional[str] = None) -> None:
         if not token or not token.strip():
             raise BitbucketAuthError(
                 "A Bitbucket Server personal access token is required. "
@@ -48,9 +48,16 @@ class BitbucketClient:
                 "  export BITBUCKET_TOKEN=your_pat_here"
             )
         self._token = token.strip()
+        self._username = (username or os.environ.get("BITBUCKET_USERNAME", "")).strip()
+        if not self._username:
+            raise BitbucketAuthError(
+                "A Bitbucket Server username is required for HTTP Basic auth. "
+                "Set BITBUCKET_USERNAME to your Stash username.\n"
+                "  export BITBUCKET_USERNAME=your_username"
+            )
         self._session = requests.Session()
+        self._session.auth = (self._username, self._token)
         self._session.headers.update({
-            "Authorization": f"Bearer {self._token}",
             "Accept": "application/json",
             "Content-Type": "application/json",
         })

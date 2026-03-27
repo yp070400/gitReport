@@ -13,6 +13,7 @@ class Config:
     google_cloud_location: str = "us-central1"
     github_token: Optional[str] = field(default=None)
     bitbucket_token: Optional[str] = field(default=None)
+    bitbucket_username: Optional[str] = field(default=None)
     # Tunnel endpoint for Gemini — overrides the default http://localhost:8080/generate
     gemini_tunnel_url: Optional[str] = field(default=None)
     # Bearer token for the tunnel service (AUTH_TOKEN on the server side)
@@ -39,6 +40,7 @@ def load_config() -> Config:
     location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1").strip() or "us-central1"
     github_token: Optional[str] = os.environ.get("GITHUB_TOKEN") or None
     bitbucket_token: Optional[str] = os.environ.get("BITBUCKET_TOKEN") or None
+    bitbucket_username: Optional[str] = os.environ.get("BITBUCKET_USERNAME") or None
     tunnel_url: Optional[str] = os.environ.get("GEMINI_TUNNEL_URL") or None
     tunnel_token: Optional[str] = os.environ.get("GEMINI_TUNNEL_TOKEN") or None
 
@@ -47,6 +49,7 @@ def load_config() -> Config:
         google_cloud_location=location,
         github_token=github_token,
         bitbucket_token=bitbucket_token,
+        bitbucket_username=bitbucket_username,
         gemini_tunnel_url=tunnel_url,
         gemini_tunnel_token=tunnel_token,
     )

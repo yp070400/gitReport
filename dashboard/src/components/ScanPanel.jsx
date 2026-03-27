@@ -57,6 +57,7 @@ export default function ScanPanel({ onSubmit, onClose }) {
   const [months, setMonths] = useState(3)
   const [githubToken, setGithubToken] = useState('')
   const [bitbucketToken, setBitbucketToken] = useState('')
+  const [bitbucketUsername, setBitbucketUsername] = useState('')
   const [geminiToken, setGeminiToken] = useState('')
   const [noAi, setNoAi] = useState(false)
   const [noDetails, setNoDetails] = useState(false)
@@ -79,6 +80,7 @@ export default function ScanPanel({ onSubmit, onClose }) {
       months,
       github_token: githubToken || undefined,
       bitbucket_token: bitbucketToken || undefined,
+      bitbucket_username: bitbucketUsername || undefined,
       gemini_token: geminiToken || undefined,
       no_ai: noAi,
       no_details: noDetails,
@@ -160,6 +162,22 @@ export default function ScanPanel({ onSubmit, onClose }) {
               onChange={setGithubToken}
               placeholder="ghp_..."
             />
+          )}
+
+          {/* Bitbucket Username */}
+          {showBitbucket && (
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Bitbucket Username <span className="font-normal text-slate-400">(overrides env var)</span>
+              </label>
+              <input
+                type="text"
+                value={bitbucketUsername}
+                onChange={e => setBitbucketUsername(e.target.value)}
+                placeholder="your stash username"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
           )}
 
           {/* Bitbucket Token */}

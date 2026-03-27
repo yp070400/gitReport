@@ -42,6 +42,7 @@ class ScanRequest(BaseModel):
     months: int = 3
     github_token: Optional[str] = None
     bitbucket_token: Optional[str] = None
+    bitbucket_username: Optional[str] = None
     gemini_token: Optional[str] = None
     no_ai: bool = False
     no_details: bool = False
@@ -86,9 +87,12 @@ def scan(req: ScanRequest):
 
     if req.source in ("bitbucket", "both") and req.bitbucket_repos:
         bb_token = req.bitbucket_token or config.bitbucket_token
+        bb_username = req.bitbucket_username or config.bitbucket_username
         if not bb_token:
             return {"error": "BITBUCKET_TOKEN is required for Bitbucket source. Set it in env or provide in the scan request."}
-        bb_client = BitbucketClient(token=bb_token)
+        if not bb_username:
+            return {"error": "BITBUCKET_USERNAME is required for Bitbucket source. Set it in env or provide in the scan request."}
+        bb_client = BitbucketClient(token=bb_token, username=bb_username)
         for repo in req.bitbucket_repos:
             commits = bb_client.fetch_commits(
                 repo=repo,
