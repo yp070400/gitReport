@@ -29,6 +29,8 @@ def load_config() -> Config:
         BITBUCKET_TOKEN       – Bitbucket App Password or access token.
         GEMINI_TUNNEL_URL     – Service endpoint (default: https://gal.d1.galileo-eu.dev.gcp.com/generate).
         GEMINI_TUNNEL_TOKEN   – Bearer token for the service (set AUTH_TOKEN on server side).
+        BITBUCKET_SERVER_URL  – Bitbucket Server base URL (default: https://stash.gto.db.com).
+        BITBUCKET_TOKEN       – Personal Access Token for Bitbucket Server.
 
     Returns:
         Populated :class:`Config` instance.
